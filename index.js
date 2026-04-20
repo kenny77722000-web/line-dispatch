@@ -8,11 +8,10 @@ app.use(express.json());
 // 📦 基本設定
 // ======================
 const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
-
-// ✅ 🔥 直接寫死（用你抓到的）
-const TG_GROUP_ID = "-5141789828";
+const TG_GROUP_ID = "-5141789828"; // 你的TG群
 
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+const BASE_URL = "https://你的網址.onrender.com"; // 🔥 換成你的
 
 let orders = {};
 let orderCounter = 100;
@@ -64,7 +63,6 @@ app.post("/line/webhook", async (req, res) => {
     if (event.type !== "message" || event.message.type !== "text") continue;
 
     const text = event.message.text.trim();
-
     console.log("📱 LINE收到:", text);
 
     // 建立訂單
@@ -73,21 +71,23 @@ app.post("/line/webhook", async (req, res) => {
 
     orders[orderId] = {
       text,
-      driver: null
+      driver: null,
+      status: "pending"
     };
 
-    // 回客戶
+    // 🔥 回客戶（含訂單頁）
     await lineReply(event.replyToken, [
       {
         type: "text",
         text:
           `🚗 訂單成立\n` +
-          `📍 ${text}\n` +
-          `🆔 ${orderId}`
+          `📍 ${text}\n\n` +
+          `👉 查看狀態：\n` +
+          `${BASE_URL}/order/${orderId}`
       }
     ]);
 
-    // 🔥 一定派到TG（不再判斷）
+    // 🔥 派到TG
     await tgSend(
       TG_GROUP_ID,
       `🚨 新訂單 🚨\n📍 ${text}\n👉 輸入 ${orderId} 搶單`
@@ -112,10 +112,6 @@ app.post("/tg/webhook", async (req, res) => {
   const messageId = msg.message_id;
 
   console.log("📩 TG收到:", text);
-  console.log("👉 chatId:", chatId);
-
-  // ❌ 不再限制群組（避免你被擋）
-  // if (String(chatId) !== TG_GROUP_ID) return;
 
   // ======================
   // 🚕 搶單
@@ -134,6 +130,7 @@ app.post("/tg/webhook", async (req, res) => {
     }
 
     orders[orderId].driver = userId;
+    orders[orderId].status = "assigned";
 
     await tgSend(chatId, `✅ 搶單成功！訂單 ${orderId}`, messageId);
 
@@ -141,6 +138,35 @@ app.post("/tg/webhook", async (req, res) => {
   }
 
   res.sendStatus(200);
+});
+
+// ======================
+// 📄 訂單狀態頁（客戶看）
+// ======================
+app.get("/order/:id", (req, res) => {
+  const orderId = req.params.id;
+  const order = orders[orderId];
+
+  if (!order) {
+    return res.send("<h2>❌ 訂單不存在</h2>");
+  }
+
+  let statusText = "⏳ 媒合中...";
+  if (order.status === "assigned") statusText = "🚗 已有司機接單";
+
+  res.send(`
+    <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta http-equiv="refresh" content="5">
+      </head>
+      <body style="font-family:sans-serif;padding:20px;">
+        <h2>🚗 訂單 ${orderId}</h2>
+        <p>📍 ${order.text}</p>
+        <p>${statusText}</p>
+      </body>
+    </html>
+  `);
 });
 
 // ======================
