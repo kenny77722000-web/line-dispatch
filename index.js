@@ -7,8 +7,8 @@ app.use(express.json());
 let orders = {};
 let orderCounter = 100;
 
-// 👉 換成你的群組ID
-const DRIVER_GROUP_ID = "你的groupId";
+// 👉 先不用手動填，會自動抓
+let DRIVER_GROUP_ID = "";
 
 // 🔥 推播訊息（給群組）
 async function push(to, messages) {
@@ -47,23 +47,35 @@ app.post("/line/webhook", async (req, res) => {
     if (event.type !== "message" || event.message.type !== "text") continue;
 
     const text = event.message.text.trim();
-    const userId = event.source.userId;
+    const source = event.source;
+    const userId = source.userId;
 
     console.log("收到:", text);
+    console.log("來源類型:", source.type);
+
+    // 🔥 自動抓 groupId
+    if (source.type === "group") {
+      DRIVER_GROUP_ID = source.groupId;
+      console.log("群組ID:", DRIVER_GROUP_ID);
+    }
 
     // ======================
     // 🚕 司機搶單（群組）
     // ======================
-    if (event.source.type === "group" && /^\d+$/.test(text)) {
+    if (source.type === "group" && /^\d+$/.test(text)) {
       const orderId = text;
 
       if (!orders[orderId]) {
-        await reply(event.replyToken, [{ type: "text", text: "❌ 訂單不存在" }]);
+        await reply(event.replyToken, [
+          { type: "text", text: "❌ 訂單不存在" }
+        ]);
         continue;
       }
 
       if (orders[orderId].driver) {
-        await reply(event.replyToken, [{ type: "text", text: "❌ 已被搶走" }]);
+        await reply(event.replyToken, [
+          { type: "text", text: "❌ 已被搶走" }
+        ]);
         continue;
       }
 
@@ -73,13 +85,14 @@ app.post("/line/webhook", async (req, res) => {
         { type: "text", text: `✅ 搶單成功！訂單 ${orderId}` }
       ]);
 
+      console.log("搶單成功:", orderId);
       continue;
     }
 
     // ======================
     // 🧾 客戶建立訂單（私訊）
     // ======================
-    if (event.source.type === "user") {
+    if (source.type === "user") {
       orderCounter++;
       const orderId = orderCounter.toString();
 
@@ -98,6 +111,12 @@ app.post("/line/webhook", async (req, res) => {
             `🆔 訂單編號：${orderId}`
         }
       ]);
+
+      // 👉 沒抓到群組就不送
+      if (!DRIVER_GROUP_ID) {
+        console.log("⚠️ 尚未抓到群組ID");
+        continue;
+      }
 
       // 👉 推送到司機群
       await push(DRIVER_GROUP_ID, [
