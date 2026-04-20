@@ -8,7 +8,7 @@ app.use(express.json());
 // 📦 基本設定
 // ======================
 const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
-let TG_GROUP_ID = process.env.TG_GROUP_ID; // 👉 可自動覆蓋
+let TG_GROUP_ID = null; // 🔥 不用環境變數，直接自動抓
 
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
@@ -82,12 +82,13 @@ app.post("/line/webhook", async (req, res) => {
       }
     ]);
 
-    // 推送 TG
+    // 👉 還沒抓到群組就先不派
     if (!TG_GROUP_ID) {
-      console.log("❌ 還沒抓到 TG 群組ID");
+      console.log("❌ 尚未抓到TG群組ID（先去群組打一句話）");
       continue;
     }
 
+    // 派到TG
     await tgSend(
       TG_GROUP_ID,
       `🚨 新訂單 🚨\n📍 ${text}\n👉 輸入 ${orderId} 搶單`
@@ -117,16 +118,10 @@ app.post("/tg/webhook", async (req, res) => {
   console.log("👉 chatId:", chatId);
   console.log("👉 chat type:", msg.chat.type);
 
-  // 🔥 自動抓群組ID（第一次）
+  // 🔥 自動記錄群組ID（只要講話就抓）
   if (msg.chat.type === "group" || msg.chat.type === "supergroup") {
     TG_GROUP_ID = chatId;
-    console.log("✅ 已記錄群組ID:", TG_GROUP_ID);
-  }
-
-  // 👉 還沒群組ID直接跳
-  if (!TG_GROUP_ID) {
-    console.log("❌ 尚未取得群組ID");
-    return res.sendStatus(200);
+    console.log("✅ 已鎖定群組ID:", TG_GROUP_ID);
   }
 
   // ======================
