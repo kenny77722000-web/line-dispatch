@@ -11,7 +11,7 @@ const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
 const TG_GROUP_ID = "-5141789828"; // 你的TG群
 
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-const BASE_URL = "https://你的網址.onrender.com"; // 🔥 換成你的
+const BASE_URL = "https://line-dispatch.onrender.com"; // 🔥 換成你的
 
 let orders = {};
 let orderCounter = 100;
