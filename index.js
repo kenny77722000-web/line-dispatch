@@ -17,7 +17,7 @@ let orders = {};
 let orderCounter = 100;
 
 // ======================
-// 🔥 LINE Reply（回覆）
+// 🔥 LINE Reply
 // ======================
 async function lineReply(token, messages) {
   await fetch("https://api.line.me/v2/bot/message/reply", {
@@ -34,7 +34,7 @@ async function lineReply(token, messages) {
 }
 
 // ======================
-// 🔥 LINE Push（主動推）
+// 🔥 LINE Push（通知）
 // ======================
 async function linePush(userId, messages) {
   await fetch("https://api.line.me/v2/bot/message/push", {
@@ -51,11 +51,9 @@ async function linePush(userId, messages) {
 }
 
 // ======================
-// 🔥 TG 發訊息
+// 🔥 TG 發送
 // ======================
 async function tgSend(chatId, text, replyId = null) {
-  console.log("📤 TG送出:", chatId, text);
-
   const res = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -71,7 +69,7 @@ async function tgSend(chatId, text, replyId = null) {
 }
 
 // ======================
-// 🔥 LINE Webhook（客戶）
+// 🔥 LINE（客戶）
 // ======================
 app.post("/line/webhook", async (req, res) => {
   const events = req.body.events;
@@ -84,7 +82,6 @@ app.post("/line/webhook", async (req, res) => {
 
     console.log("📱 LINE收到:", text);
 
-    // 建立訂單
     orderCounter++;
     const orderId = orderCounter.toString();
 
@@ -92,35 +89,33 @@ app.post("/line/webhook", async (req, res) => {
       text,
       driver: null,
       status: "pending",
-      customerId: userId
+      customerId: userId,
+      eta: null
     };
 
-    // 回客戶
+    // 回LINE
     await lineReply(event.replyToken, [
       {
         type: "text",
         text:
           `🚗 訂單成立\n` +
           `📍 ${text}\n\n` +
-          `👉 查看狀態：\n` +
-          `${BASE_URL}/order/${orderId}`
+          `👉 查看狀態：\n${BASE_URL}/order/${orderId}`
       }
     ]);
 
-    // 派到TG
+    // 推TG
     await tgSend(
       TG_GROUP_ID,
-      `🚨 新訂單 🚨\n📍 ${text}\n👉 輸入 ${orderId} 搶單`
+      `🚨 新訂單 🚨\n📍 ${text}\n👉 輸入：${orderId} 10（分鐘）搶單`
     );
-
-    console.log("✅ 派單到TG:", orderId);
   }
 
   res.sendStatus(200);
 });
 
 // ======================
-// 🔥 TG Webhook（司機）
+// 🔥 TG（司機）
 // ======================
 app.post("/tg/webhook", async (req, res) => {
   const msg = req.body.message;
@@ -129,105 +124,115 @@ app.post("/tg/webhook", async (req, res) => {
   const text = msg.text.trim();
   const chatId = msg.chat.id;
   const userId = msg.from?.id;
-  const messageId = msg.message_id;
   const name = msg.from?.first_name || "司機";
+  const messageId = msg.message_id;
 
   console.log("📩 TG收到:", text);
 
-  // ======================
-  // 🚕 搶單
-  // ======================
-  if (/^\d+$/.test(text)) {
-    const orderId = text;
+  // 👉 支援：101 10
+  const parts = text.split(" ");
+  const orderId = parts[0];
+  const eta = parts[1];
 
-    if (!orders[orderId]) {
-      await tgSend(chatId, `❌ 訂單不存在 ${orderId}`, messageId);
-      return res.sendStatus(200);
-    }
+  if (!/^\d+$/.test(orderId)) return res.sendStatus(200);
 
-    if (orders[orderId].driver) {
-      await tgSend(chatId, `❌ 已被搶走 ${orderId}`, messageId);
-      return res.sendStatus(200);
-    }
-
-    // 🔥 模擬車卡資料（之後可接資料庫）
-    const carPlate = "ABC-1234";
-    const phone = "0912345678";
-    const eta = Math.floor(Math.random() * 10) + 5;
-
-    orders[orderId].driver = userId;
-    orders[orderId].status = "assigned";
-    orders[orderId].driverName = name;
-    orders[orderId].carPlate = carPlate;
-    orders[orderId].phone = phone;
-    orders[orderId].eta = eta;
-
-    await tgSend(chatId, `✅ 搶單成功！訂單 ${orderId}`, messageId);
-
-    // 🔥 回LINE給客戶（關鍵）
-    await linePush(orders[orderId].customerId, [
-      {
-        type: "text",
-        text:
-          `✅ 已有司機接單\n\n` +
-          `🚗 車號：${carPlate}\n` +
-          `👤 司機：${name}\n` +
-          `📞 電話：${phone}\n\n` +
-          `⏱ 預計抵達：${eta} 分鐘\n\n` +
-          `👉 查看狀態：\n` +
-          `${BASE_URL}/order/${orderId}`
-      }
-    ]);
-
-    console.log("🎉 TG搶單成功:", orderId);
+  if (!orders[orderId]) {
+    await tgSend(chatId, `❌ 訂單不存在 ${orderId}`, messageId);
+    return res.sendStatus(200);
   }
+
+  if (orders[orderId].driver) {
+    await tgSend(chatId, `❌ 已被搶走 ${orderId}`, messageId);
+    return res.sendStatus(200);
+  }
+
+  // 🔥 車卡
+  const carPlate = "ABC-1234";
+  const phone = "0912345678";
+
+  orders[orderId].driver = userId;
+  orders[orderId].status = "assigned";
+  orders[orderId].driverName = name;
+  orders[orderId].carPlate = carPlate;
+  orders[orderId].phone = phone;
+  orders[orderId].eta = eta || 10;
+
+  // TG回覆
+  await tgSend(
+    chatId,
+    `✅ 搶單成功\n訂單 ${orderId}\n⏱ ETA：${orders[orderId].eta} 分鐘`,
+    messageId
+  );
+
+  // 🔥 LINE通知客戶（重點）
+  await linePush(orders[orderId].customerId, [
+    {
+      type: "text",
+      text:
+        `🚗 司機已接單\n\n` +
+        `👤 ${name}\n` +
+        `🚗 ${carPlate}\n` +
+        `📞 ${phone}\n\n` +
+        `⏱ ${orders[orderId].eta} 分鐘抵達\n\n` +
+        `${BASE_URL}/order/${orderId}`
+    }
+  ]);
+
+  // 🔥 ETA倒數
+  setInterval(() => {
+    if (orders[orderId] && orders[orderId].eta > 0) {
+      orders[orderId].eta--;
+    }
+  }, 60000);
 
   res.sendStatus(200);
 });
 
 // ======================
-// 📄 訂單頁（升級版）
+// 🔥 Web（美化版）
 // ======================
 app.get("/order/:id", (req, res) => {
   const orderId = req.params.id;
   const order = orders[orderId];
 
-  if (!order) {
-    return res.send("<h2>❌ 訂單不存在</h2>");
-  }
+  if (!order) return res.send("<h2>❌ 訂單不存在</h2>");
 
-  let statusText = "⏳ 媒合中...";
+  let status = "⏳ 媒合中...";
   let extra = "";
 
   if (order.status === "assigned") {
-    statusText = "🚗 已有司機接單";
+    status = "🚗 已有司機接單";
     extra = `
-      <p>🚗 車號：${order.carPlate}</p>
-      <p>👤 司機：${order.driverName}</p>
-      <p>📞 電話：${order.phone}</p>
-      <p>⏱ ETA：約 ${order.eta} 分鐘</p>
+      <p>🚗 ${order.carPlate}</p>
+      <p>👤 ${order.driverName}</p>
+      <p>📞 ${order.phone}</p>
+      <p style="color:red;">⏱ ${order.eta} 分鐘</p>
     `;
   }
 
   res.send(`
-    <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta http-equiv="refresh" content="5">
-      </head>
-      <body style="font-family:sans-serif;padding:20px;">
-        <h2>🚗 訂單 ${orderId}</h2>
-        <p>📍 ${order.text}</p>
-        <p>${statusText}</p>
-        ${extra}
-      </body>
-    </html>
+  <html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="5">
+    <style>
+      body{font-family:sans-serif;background:#f5f5f5;padding:20px;}
+      .card{background:#fff;padding:20px;border-radius:12px;box-shadow:0 5px 20px rgba(0,0,0,0.1);}
+    </style>
+  </head>
+
+  <body>
+    <div class="card">
+      <h2>🚗 訂單 ${orderId}</h2>
+      <p>📍 ${order.text}</p>
+      <p>${status}</p>
+      ${extra}
+    </div>
+  </body>
+  </html>
   `);
 });
 
-// ======================
-// 🚀 啟動
-// ======================
 app.listen(10000, () => {
   console.log("🚀 Server running on port 10000");
 });
