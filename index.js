@@ -34,10 +34,10 @@ async function lineReply(token, messages) {
 }
 
 // ======================
-// 🔥 LINE Push（通知）
+// 🔥 LINE Push（🔥有log）
 // ======================
 async function linePush(userId, messages) {
-  await fetch("https://api.line.me/v2/bot/message/push", {
+  const res = await fetch("https://api.line.me/v2/bot/message/push", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -48,6 +48,9 @@ async function linePush(userId, messages) {
       messages
     })
   });
+
+  const text = await res.text();
+  console.log("📨 LINE PUSH回應:", text);
 }
 
 // ======================
@@ -93,7 +96,7 @@ app.post("/line/webhook", async (req, res) => {
       eta: null
     };
 
-    // 回LINE
+    // 回客戶
     await lineReply(event.replyToken, [
       {
         type: "text",
@@ -129,7 +132,6 @@ app.post("/tg/webhook", async (req, res) => {
 
   console.log("📩 TG收到:", text);
 
-  // 👉 支援：101 10
   const parts = text.split(" ");
   const orderId = parts[0];
   const eta = parts[1];
@@ -146,7 +148,7 @@ app.post("/tg/webhook", async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // 🔥 車卡
+  // 👉 車卡（之後可接後台）
   const carPlate = "ABC-1234";
   const phone = "0912345678";
 
@@ -155,16 +157,16 @@ app.post("/tg/webhook", async (req, res) => {
   orders[orderId].driverName = name;
   orders[orderId].carPlate = carPlate;
   orders[orderId].phone = phone;
-  orders[orderId].eta = eta || 10;
+  orders[orderId].eta = Number(eta) || 10;
 
-  // TG回覆
+  // TG回
   await tgSend(
     chatId,
     `✅ 搶單成功\n訂單 ${orderId}\n⏱ ETA：${orders[orderId].eta} 分鐘`,
     messageId
   );
 
-  // 🔥 LINE通知客戶（重點）
+  // 🔥 LINE通知（關鍵）
   await linePush(orders[orderId].customerId, [
     {
       type: "text",
@@ -178,7 +180,9 @@ app.post("/tg/webhook", async (req, res) => {
     }
   ]);
 
-  // 🔥 ETA倒數
+  console.log("✅ 已通知LINE客戶");
+
+  // ETA倒數
   setInterval(() => {
     if (orders[orderId] && orders[orderId].eta > 0) {
       orders[orderId].eta--;
@@ -189,12 +193,10 @@ app.post("/tg/webhook", async (req, res) => {
 });
 
 // ======================
-// 🔥 Web（美化版）
+// 🔥 Web（客戶頁）
 // ======================
 app.get("/order/:id", (req, res) => {
-  const orderId = req.params.id;
-  const order = orders[orderId];
-
+  const order = orders[req.params.id];
   if (!order) return res.send("<h2>❌ 訂單不存在</h2>");
 
   let status = "⏳ 媒合中...";
@@ -223,7 +225,7 @@ app.get("/order/:id", (req, res) => {
 
   <body>
     <div class="card">
-      <h2>🚗 訂單 ${orderId}</h2>
+      <h2>🚗 訂單 ${req.params.id}</h2>
       <p>📍 ${order.text}</p>
       <p>${status}</p>
       ${extra}
