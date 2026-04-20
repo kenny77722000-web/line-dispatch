@@ -7,12 +7,14 @@ app.use(express.json());
 let orders = {};
 let orderCounter = 100;
 
-// 👉 先不用手動填，會自動抓
+// ✅ 你的群組ID（已固定）
 const DRIVER_GROUP_ID = "C1f4a9c18ad8a834ed7d6ec73d48362a1";
 
+// ======================
 // 🔥 推播訊息（給群組）
+// ======================
 async function push(to, messages) {
-  await fetch("https://api.line.me/v2/bot/message/push", {
+  const res = await fetch("https://api.line.me/v2/bot/message/push", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -23,9 +25,14 @@ async function push(to, messages) {
       messages
     })
   });
+
+  const data = await res.text();
+  console.log("📤 推播結果:", data);
 }
 
+// ======================
 // 🔥 回覆用戶
+// ======================
 async function reply(token, messages) {
   await fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
@@ -40,6 +47,9 @@ async function reply(token, messages) {
   });
 }
 
+// ======================
+// 🔥 Webhook
+// ======================
 app.post("/line/webhook", async (req, res) => {
   const events = req.body.events;
 
@@ -50,8 +60,8 @@ app.post("/line/webhook", async (req, res) => {
     const source = event.source;
     const userId = source.userId;
 
-    console.log("收到:", text);
-    console.log("來源類型:", source.type);
+    console.log("📩 收到:", text);
+    console.log("📍 來源:", source.type);
 
     // ======================
     // 🚕 司機搶單（群組）
@@ -79,7 +89,7 @@ app.post("/line/webhook", async (req, res) => {
         { type: "text", text: `✅ 搶單成功！訂單 ${orderId}` }
       ]);
 
-      console.log("搶單成功:", orderId);
+      console.log("✅ 搶單成功:", orderId);
       continue;
     }
 
@@ -106,12 +116,6 @@ app.post("/line/webhook", async (req, res) => {
         }
       ]);
 
-      // 👉 沒抓到群組就不送
-      if (!DRIVER_GROUP_ID) {
-        console.log("⚠️ 尚未抓到群組ID");
-        continue;
-      }
-
       // 👉 推送到司機群
       await push(DRIVER_GROUP_ID, [
         {
@@ -123,13 +127,14 @@ app.post("/line/webhook", async (req, res) => {
         }
       ]);
 
-      console.log("派單到群:", orderId);
+      console.log("🚀 已派單到群:", orderId);
     }
   }
 
   res.sendStatus(200);
 });
 
+// ======================
 app.listen(10000, () => {
-  console.log("Server running on port 10000");
+  console.log("🚀 Server running on port 10000");
 });
