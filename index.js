@@ -8,7 +8,9 @@ app.use(express.json());
 // 📦 基本設定
 // ======================
 const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
-let TG_GROUP_ID = null; // 🔥 不用環境變數，直接自動抓
+
+// ✅ 🔥 直接寫死（用你抓到的）
+const TG_GROUP_ID = "-5141789828";
 
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
@@ -38,7 +40,7 @@ async function lineReply(token, messages) {
 async function tgSend(chatId, text, replyId = null) {
   console.log("📤 TG送出:", chatId, text);
 
-  await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
+  const res = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -47,6 +49,9 @@ async function tgSend(chatId, text, replyId = null) {
       reply_to_message_id: replyId || undefined
     })
   });
+
+  const data = await res.json();
+  console.log("📨 TG回應:", data);
 }
 
 // ======================
@@ -82,13 +87,7 @@ app.post("/line/webhook", async (req, res) => {
       }
     ]);
 
-    // 👉 還沒抓到群組就先不派
-    if (!TG_GROUP_ID) {
-      console.log("❌ 尚未抓到TG群組ID（先去群組打一句話）");
-      continue;
-    }
-
-    // 派到TG
+    // 🔥 一定派到TG（不再判斷）
     await tgSend(
       TG_GROUP_ID,
       `🚨 新訂單 🚨\n📍 ${text}\n👉 輸入 ${orderId} 搶單`
@@ -104,25 +103,19 @@ app.post("/line/webhook", async (req, res) => {
 // 🔥 TG Webhook（司機）
 // ======================
 app.post("/tg/webhook", async (req, res) => {
-  console.log("🔥 TG RAW:", JSON.stringify(req.body, null, 2));
-
   const msg = req.body.message;
-  if (!msg) return res.sendStatus(200);
+  if (!msg || !msg.text) return res.sendStatus(200);
 
-  const text = msg.text || "";
+  const text = msg.text.trim();
   const chatId = msg.chat.id;
   const userId = msg.from?.id;
   const messageId = msg.message_id;
 
   console.log("📩 TG收到:", text);
   console.log("👉 chatId:", chatId);
-  console.log("👉 chat type:", msg.chat.type);
 
-  // 🔥 自動記錄群組ID（只要講話就抓）
-  if (msg.chat.type === "group" || msg.chat.type === "supergroup") {
-    TG_GROUP_ID = chatId;
-    console.log("✅ 已鎖定群組ID:", TG_GROUP_ID);
-  }
+  // ❌ 不再限制群組（避免你被擋）
+  // if (String(chatId) !== TG_GROUP_ID) return;
 
   // ======================
   // 🚕 搶單
