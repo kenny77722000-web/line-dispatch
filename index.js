@@ -8,7 +8,7 @@ let orders = {};
 let orderCounter = 100;
 
 // 👉 先不用手動填，會自動抓
-let DRIVER_GROUP_ID = "";
+const DRIVER_GROUP_ID = "C1f4a9c18ad8a834ed7d6ec73d48362a1";
 
 // 🔥 推播訊息（給群組）
 async function push(to, messages) {
@@ -52,12 +52,6 @@ app.post("/line/webhook", async (req, res) => {
 
     console.log("收到:", text);
     console.log("來源類型:", source.type);
-
-    // 🔥 自動抓 groupId
-    if (source.type === "group") {
-      DRIVER_GROUP_ID = source.groupId;
-      console.log("群組ID:", DRIVER_GROUP_ID);
-    }
 
     // ======================
     // 🚕 司機搶單（群組）
