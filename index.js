@@ -16,8 +16,9 @@ const BASE_URL = "https://line-dispatch.onrender.com";
 let orders = {};
 let orderCounter = 100;
 
-// 🔥 新增：司機資料庫（白名單）
+// 🔥 司機資料庫
 let drivers = {};
+let lastRegisterUser = null;
 
 // ======================
 // 🔥 LINE Reply
@@ -38,7 +39,7 @@ async function lineReply(token, messages) {
 
 // ======================
 async function linePush(userId, messages) {
-  const res = await fetch("https://api.line.me/v2/bot/message/push", {
+  await fetch("https://api.line.me/v2/bot/message/push", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -49,8 +50,6 @@ async function linePush(userId, messages) {
       messages
     })
   });
-
-  console.log("📨 LINE PUSH:", await res.text());
 }
 
 // ======================
@@ -95,7 +94,7 @@ app.post("/line/webhook", async (req, res) => {
         text:
           `🚗 訂單成立\n` +
           `📍 ${text}\n\n` +
-          `${BASE_URL}/order/${orderId}`
+          `👉 查看狀態：\n${BASE_URL}/order/${orderId}`
       }
     ]);
 
@@ -121,6 +120,7 @@ app.post("/tg/webhook", async (req, res) => {
   const name = msg.from?.first_name || "司機";
 
   console.log("📩 TG:", text);
+  console.log("👉 userId:", userId);
 
   // ======================
   // 🔥 註冊
@@ -137,19 +137,61 @@ app.post("/tg/webhook", async (req, res) => {
       active: false
     };
 
-    await tgSend(chatId, "✅ 已申請，等待審核");
+    lastRegisterUser = userId;
+
+    await tgSend(
+      chatId,
+      `📝 註冊成功（待審核）\n\n👤 ${name}\n🚗 ${carPlate}\n📞 ${phone}\n🆔 ${userId}`
+    );
+
     return res.sendStatus(200);
   }
 
   // ======================
-  // 🔥 審核（你用）
+  // 🔥 查看司機
   // ======================
-  if (text.startsWith("/approve")) {
+  if (text === "/drivers") {
+    let list = "🚗 司機列表\n\n";
+
+    for (let id in drivers) {
+      const d = drivers[id];
+      list += `${d.name} | ${d.carPlate} | ${d.active ? "✅" : "❌"}\nID:${id}\n\n`;
+    }
+
+    await tgSend(chatId, list || "沒有司機");
+    return res.sendStatus(200);
+  }
+
+  // ======================
+  // 🔥 審核（免打ID）
+  // ======================
+  if (text === "/approve") {
+    if (!lastRegisterUser) {
+      await tgSend(chatId, "❌ 沒有待審核");
+      return res.sendStatus(200);
+    }
+
+    drivers[lastRegisterUser].active = true;
+
+    await tgSend(
+      chatId,
+      `✅ 已核准\n👤 ${drivers[lastRegisterUser].name}`
+    );
+
+    return res.sendStatus(200);
+  }
+
+  // ======================
+  // 🔥 指定審核
+  // ======================
+  if (text.startsWith("/approve ")) {
     const id = text.split(" ")[1];
 
     if (drivers[id]) {
       drivers[id].active = true;
       await tgSend(chatId, `✅ 已核准 ${drivers[id].name}`);
+    } else {
+      await tgSend(chatId, "❌ 找不到司機");
     }
 
     return res.sendStatus(200);
@@ -166,9 +208,8 @@ app.post("/tg/webhook", async (req, res) => {
 
   const driver = drivers[userId];
 
-  // ❌ 未授權
   if (!driver || !driver.active) {
-    await tgSend(chatId, "❌ 未授權司機");
+    await tgSend(chatId, "❌ 未授權司機（先 /register）");
     return res.sendStatus(200);
   }
 
@@ -191,6 +232,7 @@ app.post("/tg/webhook", async (req, res) => {
 
   await tgSend(chatId, `✅ 搶單成功 ${orderId}`);
 
+  // 🔥 LINE 二次通知（關鍵）
   await linePush(orders[orderId].customerId, [
     {
       type: "text",
@@ -234,8 +276,8 @@ app.get("/order/:id", (req, res) => {
     <meta http-equiv="refresh" content="5">
   </head>
   <body>
-    <h2>訂單 ${req.params.id}</h2>
-    <p>${order.text}</p>
+    <h2>🚗 訂單 ${req.params.id}</h2>
+    <p>📍 ${order.text}</p>
     <p>${status}</p>
     ${extra}
   </body>
@@ -243,4 +285,6 @@ app.get("/order/:id", (req, res) => {
   `);
 });
 
-app.listen(10000);
+app.listen(10000, () => {
+  console.log("🚀 Server running on port 10000");
+});
