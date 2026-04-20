@@ -7,8 +7,8 @@ app.use(express.json());
 // ======================
 // 📦 基本設定
 // ======================
-const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN; // 👉 記得設環境變數
-const TG_GROUP_ID = process.env.TG_GROUP_ID;   // 👉 群組ID（-100開頭）
+const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
+const TG_GROUP_ID = process.env.TG_GROUP_ID;
 
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 
@@ -33,21 +33,22 @@ async function lineReply(token, messages) {
 }
 
 // ======================
-// 🔥 TG 發訊息
+// 🔥 TG 發訊息（群組）
 // ======================
-async function tgSend(text) {
+async function tgSend(chatId, text, replyId = null) {
   await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      chat_id: TG_GROUP_ID,
-      text
+      chat_id: chatId,
+      text,
+      reply_to_message_id: replyId || undefined
     })
   });
 }
 
 // ======================
-// 🔥 LINE Webhook（客戶用）
+// 🔥 LINE Webhook（客戶）
 // ======================
 app.post("/line/webhook", async (req, res) => {
   const events = req.body.events;
@@ -59,7 +60,7 @@ app.post("/line/webhook", async (req, res) => {
 
     console.log("LINE收到:", text);
 
-    // 🧾 建立訂單
+    // 建立訂單
     orderCounter++;
     const orderId = orderCounter.toString();
 
@@ -68,7 +69,7 @@ app.post("/line/webhook", async (req, res) => {
       driver: null
     };
 
-    // 👉 回客戶
+    // 回客戶
     await lineReply(event.replyToken, [
       {
         type: "text",
@@ -79,11 +80,15 @@ app.post("/line/webhook", async (req, res) => {
       }
     ]);
 
-    // 👉 推到 TG 群
+    // 推到 TG
+    if (!TG_GROUP_ID) {
+      console.log("❌ 沒設定 TG_GROUP_ID");
+      continue;
+    }
+
     await tgSend(
-      `🚨 新訂單 🚨\n` +
-      `📍 ${text}\n\n` +
-      `👉 輸入 ${orderId} 搶單`
+      TG_GROUP_ID,
+      `🚨 新訂單 🚨\n📍 ${text}\n👉 輸入 ${orderId} 搶單`
     );
 
     console.log("派單到TG:", orderId);
@@ -93,7 +98,7 @@ app.post("/line/webhook", async (req, res) => {
 });
 
 // ======================
-// 🔥 TG Webhook（司機用）
+// 🔥 TG Webhook（司機）
 // ======================
 app.post("/tg/webhook", async (req, res) => {
   const msg = req.body.message;
@@ -102,29 +107,40 @@ app.post("/tg/webhook", async (req, res) => {
   const text = msg.text.trim();
   const chatId = msg.chat.id;
   const userId = msg.from.id;
+  const messageId = msg.message_id;
 
   console.log("TG收到:", text);
+  console.log("chatId:", chatId);
 
-  // 👉 只處理群組
-  if (chatId != TG_GROUP_ID) return res.sendStatus(200);
+  // 👉 限定群組
+  if (String(chatId) !== String(TG_GROUP_ID)) {
+    console.log("❌ 非目標群組");
+    return res.sendStatus(200);
+  }
 
+  // ======================
   // 🚕 搶單
+  // ======================
   if (/^\d+$/.test(text)) {
     const orderId = text;
 
     if (!orders[orderId]) {
-      await tgSend(`❌ 訂單不存在 ${orderId}`);
+      await tgSend(chatId, `❌ 訂單不存在 ${orderId}`, messageId);
       return res.sendStatus(200);
     }
 
     if (orders[orderId].driver) {
-      await tgSend(`❌ 已被搶走 ${orderId}`);
+      await tgSend(chatId, `❌ 已被搶走 ${orderId}`, messageId);
       return res.sendStatus(200);
     }
 
     orders[orderId].driver = userId;
 
-    await tgSend(`✅ 搶單成功！訂單 ${orderId}`);
+    await tgSend(
+      chatId,
+      `✅ 搶單成功！訂單 ${orderId}`,
+      messageId
+    );
 
     console.log("TG搶單成功:", orderId);
   }
