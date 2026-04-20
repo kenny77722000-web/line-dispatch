@@ -1,22 +1,31 @@
-import express from "express";
-const app = express();
+app.post("/line/webhook", async (req, res) => {
+  const events = req.body.events;
 
-app.use(express.json());
+  for (const event of events) {
+    if (event.type !== "message") continue;
 
-// 測試首頁
-app.get("/", (req, res) => {
-  res.send("系統運行中🔥");
-});
+    const text = event.message.text;
 
-// LINE Webhook
-app.post("/line/webhook", (req, res) => {
-  console.log("收到LINE訊息:", JSON.stringify(req.body, null, 2));
+    console.log("使用者說:", text);
 
-  // 一定要回200
+    // ⭐ 回覆 LINE
+    await fetch("https://api.line.me/v2/bot/message/reply", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+      },
+      body: JSON.stringify({
+        replyToken: event.replyToken,
+        messages: [
+          {
+            type: "text",
+            text: `你剛剛說：${text}`
+          }
+        ]
+      })
+    });
+  }
+
   res.sendStatus(200);
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Server running on port", PORT);
 });
