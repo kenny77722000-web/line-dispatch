@@ -5,26 +5,19 @@ const app = express();
 app.use(express.json());
 
 // ======================
-// 📦 基本設定
-// ======================
 const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN;
 const TG_GROUP_ID = "-5141789828";
 
 const LINE_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 const BASE_URL = "https://line-dispatch.onrender.com";
 
-// 🔐 後台密碼
 const ADMIN_PASSWORD = "123456";
 
 let orders = {};
 let orderCounter = 100;
-
-// 🔥 司機資料
 let drivers = {};
 let lastRegisterUser = null;
 
-// ======================
-// 🔥 LINE Reply
 // ======================
 async function lineReply(token, messages) {
   await fetch("https://api.line.me/v2/bot/message/reply", {
@@ -33,14 +26,10 @@ async function lineReply(token, messages) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${LINE_TOKEN}`
     },
-    body: JSON.stringify({
-      replyToken: token,
-      messages
-    })
+    body: JSON.stringify({ replyToken: token, messages })
   });
 }
 
-// ======================
 async function linePush(userId, messages) {
   await fetch("https://api.line.me/v2/bot/message/push", {
     method: "POST",
@@ -48,34 +37,26 @@ async function linePush(userId, messages) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${LINE_TOKEN}`
     },
-    body: JSON.stringify({
-      to: userId,
-      messages
-    })
+    body: JSON.stringify({ to: userId, messages })
   });
 }
 
-// ======================
-async function tgSend(chatId, text, replyId = null) {
+async function tgSend(chatId, text) {
   await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      reply_to_message_id: replyId || undefined
-    })
+    body: JSON.stringify({ chat_id: chatId, text })
   });
 }
 
 // ======================
-// 🔥 LINE（客戶）
+// 🔥 LINE 客戶
 // ======================
 app.post("/line/webhook", async (req, res) => {
   const events = req.body.events;
 
   for (const event of events) {
-    if (event.type !== "message" || event.message.type !== "text") continue;
+    if (event.type !== "message") continue;
 
     const text = event.message.text.trim();
     const userId = event.source.userId;
@@ -85,10 +66,8 @@ app.post("/line/webhook", async (req, res) => {
 
     orders[orderId] = {
       text,
-      driver: null,
       status: "pending",
-      customerId: userId,
-      eta: null
+      customerId: userId
     };
 
     await lineReply(event.replyToken, [
@@ -101,7 +80,7 @@ app.post("/line/webhook", async (req, res) => {
 
     await tgSend(
       TG_GROUP_ID,
-      `🚨 新訂單 🚨\n📍 ${text}\n👉 輸入：${orderId} 10`
+      `🚨 新訂單 🚨\n📍 ${text}\n👉 ${orderId} 10`
     );
   }
 
@@ -109,27 +88,19 @@ app.post("/line/webhook", async (req, res) => {
 });
 
 // ======================
-// 🔥 TG（司機）
+// 🔥 TG 司機
 // ======================
 app.post("/tg/webhook", async (req, res) => {
   const msg = req.body.message;
   if (!msg || !msg.text) return res.sendStatus(200);
 
   const text = msg.text.trim();
-  const chatId = msg.chat.id;
-  const userId = msg.from?.id;
-  const name = msg.from?.first_name || "司機";
+  const userId = msg.from.id;
+  const name = msg.from.first_name;
 
-  console.log("📩 TG:", text);
-  console.log("👉 userId:", userId);
-
-  // ======================
-  // 🔥 註冊
-  // ======================
+  // 註冊
   if (text.startsWith("/register")) {
-    const parts = text.split(" ");
-    const carPlate = parts[1];
-    const phone = parts[2];
+    const [_, carPlate, phone] = text.split(" ");
 
     drivers[userId] = {
       name,
@@ -140,68 +111,46 @@ app.post("/tg/webhook", async (req, res) => {
 
     lastRegisterUser = userId;
 
-    await tgSend(chatId,
-      `📝 註冊成功（待審核）\n\n👤 ${name}\n🚗 ${carPlate}\n📞 ${phone}\n🆔 ${userId}`
-    );
-
+    await tgSend(TG_GROUP_ID, `📝 新司機待審核\n${name}`);
     return res.sendStatus(200);
   }
 
-  // ======================
-  // 🔥 快速審核
-  // ======================
+  // 審核
   if (text === "/approve") {
-    if (!lastRegisterUser) {
-      await tgSend(chatId, "❌ 沒有待審核");
-      return res.sendStatus(200);
-    }
+    if (!lastRegisterUser) return;
 
     drivers[lastRegisterUser].active = true;
-    await tgSend(chatId, `✅ 已核准 ${drivers[lastRegisterUser].name}`);
+    await tgSend(TG_GROUP_ID, "✅ 已核准");
     return res.sendStatus(200);
   }
 
-  // ======================
-  // 🚕 搶單
-  // ======================
-  const parts = text.split(" ");
-  const orderId = parts[0];
-  const eta = parts[1];
-
-  if (!/^\d+$/.test(orderId)) return res.sendStatus(200);
-
+  // 搶單
+  const [orderId, eta] = text.split(" ");
   const driver = drivers[userId];
 
   if (!driver || !driver.active) {
-    await tgSend(chatId, "❌ 未授權司機（先 /register）");
+    await tgSend(TG_GROUP_ID, "❌ 未授權");
     return res.sendStatus(200);
   }
 
-  if (!orders[orderId]) {
-    await tgSend(chatId, "❌ 訂單不存在");
-    return res.sendStatus(200);
-  }
+  const order = orders[orderId];
+  if (!order || order.driver) return;
 
-  if (orders[orderId].driver) {
-    await tgSend(chatId, "❌ 已被搶走");
-    return res.sendStatus(200);
-  }
+  order.driver = userId;
+  order.status = "assigned";
+  order.driverName = driver.name;
+  order.carPlate = driver.carPlate;
+  order.phone = driver.phone;
+  order.eta = eta;
 
-  orders[orderId].driver = userId;
-  orders[orderId].status = "assigned";
-  orders[orderId].driverName = driver.name;
-  orders[orderId].carPlate = driver.carPlate;
-  orders[orderId].phone = driver.phone;
-  orders[orderId].eta = Number(eta) || 10;
+  await tgSend(TG_GROUP_ID, `✅ 接單成功 ${orderId}`);
 
-  await tgSend(chatId, `✅ 搶單成功 ${orderId}`);
-
-  // 🔥 LINE 通知
-  await linePush(orders[orderId].customerId, [
+  // LINE 通知
+  await linePush(order.customerId, [
     {
       type: "text",
       text:
-        `🚗 已接單\n\n👤 ${driver.name}\n🚗 ${driver.carPlate}\n📞 ${driver.phone}\n⏱ ${orders[orderId].eta} 分鐘\n\n${BASE_URL}/order/${orderId}`
+        `🚗 已接單\n👤 ${driver.name}\n🚗 ${driver.carPlate}\n📞 ${driver.phone}\n⏱ ${eta} 分鐘\n${BASE_URL}/order/${orderId}`
     }
   ]);
 
@@ -209,104 +158,67 @@ app.post("/tg/webhook", async (req, res) => {
 });
 
 // ======================
-// 🔥 Web 訂單頁
+// 🔥 訂單頁
 // ======================
 app.get("/order/:id", (req, res) => {
-  const order = orders[req.params.id];
-  if (!order) return res.send("❌ 訂單不存在");
-
-  let status = "⏳ 媒合中...";
-  let extra = "";
-
-  if (order.status === "assigned") {
-    status = "🚗 已接單";
-    extra = `
-      <p>👤 ${order.driverName}</p>
-      <p>🚗 ${order.carPlate}</p>
-      <p>📞 ${order.phone}</p>
-      <p>⏱ ${order.eta} 分鐘</p>
-    `;
-  }
+  const o = orders[req.params.id];
+  if (!o) return res.send("❌");
 
   res.send(`
   <html>
   <head>
-    <meta name="viewport" content="width=device-width">
     <meta http-equiv="refresh" content="5">
   </head>
-  <body style="font-family:sans-serif;padding:20px">
-    <h2>🚗 訂單 ${req.params.id}</h2>
-    <p>📍 ${order.text}</p>
-    <p>${status}</p>
-    ${extra}
+  <body style="font-family:sans-serif">
+    <h2>訂單 ${req.params.id}</h2>
+    <p>${o.text}</p>
+    <p>${o.status}</p>
+    ${o.driverName ? `<p>${o.driverName}</p>` : ""}
   </body>
   </html>
   `);
 });
 
 // ======================
-// 🔥 後台 UI
+// 🔥 後台 UI（完整）
 // ======================
-app.get("/admin", (req, res) => {
-  res.send(`
-  <html>
-  <body>
-    <h2>後台登入</h2>
-    <form action="/admin/dashboard">
-      <input name="pwd" placeholder="密碼"/>
-      <button>登入</button>
-    </form>
-  </body>
-  </html>
-  `);
-});
-
 app.get("/admin/dashboard", (req, res) => {
-  if (req.query.pwd !== ADMIN_PASSWORD) return res.send("❌ 密碼錯");
+  if (req.query.pwd !== ADMIN_PASSWORD) return res.send("❌");
 
-  let driverHTML = "";
-  for (let id in drivers) {
-    const d = drivers[id];
-    driverHTML += `
-    <tr>
-      <td>${d.name}</td>
-      <td>${d.carPlate}</td>
-      <td>${d.phone}</td>
-      <td>${d.active ? "✅" : "❌"}</td>
-      <td>
-        <a href="/admin/approve?id=${id}&pwd=${ADMIN_PASSWORD}">核准</a>
-        |
-        <a href="/admin/block?id=${id}&pwd=${ADMIN_PASSWORD}">封鎖</a>
-      </td>
-    </tr>`;
-  }
+  let driversUI = Object.entries(drivers).map(([id, d]) => `
+    <div class="card">
+      <b>${d.name}</b>
+      <div>${d.carPlate}</div>
+      <div>${d.phone}</div>
+      <div>${d.active ? "✅" : "❌"}</div>
+      <a href="/admin/approve?id=${id}&pwd=${ADMIN_PASSWORD}">核准</a>
+      <a href="/admin/block?id=${id}&pwd=${ADMIN_PASSWORD}">封鎖</a>
+    </div>
+  `).join("");
+
+  let ordersUI = Object.entries(orders).map(([id, o]) => `
+    <div class="card">
+      <b>訂單 ${id}</b>
+      <div>${o.text}</div>
+      <div>${o.status}</div>
+      ${o.driverName ? `<div>${o.driverName}</div>` : ""}
+    </div>
+  `).join("");
 
   res.send(`
   <html>
+  <style>
+    body { background:#111;color:#fff;font-family:sans-serif }
+    .card { background:#222;padding:10px;margin:10px;border-radius:8px }
+  </style>
   <body>
-    <h2>🚗 後台</h2>
-
-    <table border="1">
-      <tr><th>司機</th><th>車牌</th><th>電話</th><th>狀態</th><th>操作</th></tr>
-      ${driverHTML}
-    </table>
-
+    <h2>司機</h2>
+    ${driversUI}
+    <h2>訂單</h2>
+    ${ordersUI}
   </body>
   </html>
   `);
 });
 
-app.get("/admin/approve", (req, res) => {
-  drivers[req.query.id].active = true;
-  res.redirect(`/admin/dashboard?pwd=${ADMIN_PASSWORD}`);
-});
-
-app.get("/admin/block", (req, res) => {
-  drivers[req.query.id].active = false;
-  res.redirect(`/admin/dashboard?pwd=${ADMIN_PASSWORD}`);
-});
-
-// ======================
-app.listen(10000, () => {
-  console.log("🚀 Server running");
-});
+app.listen(10000);
