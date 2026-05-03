@@ -182,39 +182,19 @@ function parseBidPayload(body) {
 }
 
 function parseCompletePayload(body) {
-  const waitingM = body.match(/等\s*(\d+)/);
-  if (!waitingM) return null;
-  const waitingMinutes = parseInt(waitingM[1], 10);
+  const trimmed = body.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(/\s+/);
+  if (parts.length !== 3) return null;
+  const numRe = /^\d+(\.\d+)?$/;
+  if (!parts.every((p) => numRe.test(p))) return null;
 
-  let mileage = null;
-  const kmM = body.match(/([\d.]+)\s*公里/);
-  if (kmM) mileage = kmM[1];
+  const mileage = parts[0];
+  const waitingMinutes = parseInt(parts[1], 10);
+  const fare = parts[2];
 
-  let fare = null;
-  const fareM1 = body.match(/收\s*(\d+)/);
-  if (fareM1) fare = fareM1[1];
-
-  const nums = body.match(/[\d.]+/g) || [];
-  const intCandidates = nums.filter((x) => !x.includes("."));
-
-  if (fare == null) {
-    for (let i = intCandidates.length - 1; i >= 0; i--) {
-      if (intCandidates[i] !== String(waitingMinutes)) {
-        fare = intCandidates[i];
-        break;
-      }
-    }
-  }
-
-  if (mileage == null) {
-    const after客下 = body.replace(/^客下\s*/i, "").trim();
-    const nums2 = after客下.match(/[\d.]+/g) || [];
-    if (nums2.length >= 1) mileage = nums2[0];
-    if (fare == null && nums2.length >= 2) fare = nums2[1];
-  }
-
-  if (mileage == null || fare == null || Number.isNaN(waitingMinutes)) return null;
-  return { mileage, fare: String(fare), waitingMinutes };
+  if (Number.isNaN(waitingMinutes)) return null;
+  return { mileage, waitingMinutes, fare };
 }
 
 function findActiveOrderForDriver(driverId) {
