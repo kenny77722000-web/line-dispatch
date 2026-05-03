@@ -3,7 +3,16 @@ import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
+app.get("/", (req, res) => {
+  res.send("Dispatch system running");
+});
 
+app.get("/db-test", async (req, res) => {
+  res.json({
+    ok: true,
+    message: "db-test route exists"
+  });
+});
 // ======================
 // 📦 基本設定
 // ======================
